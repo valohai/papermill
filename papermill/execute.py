@@ -2,22 +2,15 @@
 
 from __future__ import unicode_literals, print_function
 
-import six
 import copy
 import nbformat
 
 from .log import logger
 from .exceptions import PapermillExecutionError
-from .iorw import (
-    load_notebook_node,
-    write_ipynb,
-    read_yaml_file,
-    get_pretty_path,
-    local_file_io_cwd,
-)
-from .translators import translate_parameters
+from .iorw import load_notebook_node, write_ipynb, get_pretty_path, local_file_io_cwd
 from .engines import papermill_engines
 from .utils import chdir
+from .parameterize import parameterize_notebook, parameterize_path, add_builtin_parameters
 
 
 def execute_notebook(
@@ -25,6 +18,7 @@ def execute_notebook(
     output_path,
     parameters=None,
     engine_name=None,
+    request_save_on_cell_execute=True,
     prepare_only=False,
     kernel_name=None,
     progress_bar=True,
@@ -32,6 +26,7 @@ def execute_notebook(
     start_timeout=60,
     report_mode=False,
     cwd=None,
+    **engine_kwargs
 ):
     """Executes a single notebook locally.
 
@@ -45,6 +40,8 @@ def execute_notebook(
         Arbitrary keyword arguments to pass to the notebook parameters
     engine_name : str, optional
         Name of execution engine to use
+    request_save_on_cell_execute : bool, optional
+        Request save notebook after each cell execution
     prepare_only : bool, optional
         Flag to determine if execution should occur or not
     kernel_name : str, optional
@@ -59,12 +56,18 @@ def execute_notebook(
         Flag for whether or not to hide input.
     cwd : str, optional
         Working directory to use when executing the notebook
+    **kwargs
+        Arbitrary keyword arguments to pass to the notebook engine
 
     Returns
     -------
     nb : NotebookNode
        Executed notebook object
     """
+    path_parameters = add_builtin_parameters(parameters)
+    input_path = parameterize_path(input_path, path_parameters)
+    output_path = parameterize_path(output_path, path_parameters)
+
     logger.info("Input Notebook:  %s" % get_pretty_path(input_path))
     logger.info("Output Notebook: %s" % get_pretty_path(output_path))
     with local_file_io_cwd():
@@ -89,11 +92,12 @@ def execute_notebook(
                     engine_name,
                     nb,
                     input_path=input_path,
-                    output_path=output_path,
+                    output_path=output_path if request_save_on_cell_execute else None,
                     kernel_name=kernel_name,
                     progress_bar=progress_bar,
                     log_output=log_output,
                     start_timeout=start_timeout,
+                    **engine_kwargs
                 )
 
             # Check for errors first (it saves on error before raising)

@@ -1,5 +1,27 @@
 # Change Log
 
+## 1.1.0
+- Read content from stdin/to stdout when the path is `-` or a pipe. This allows for `<generate input>... | papermill | ...<process output>`, with `papermill - -` being implied by the pipes.
+- The built-in `ADLHandler` for Azure Pipelines should now work properly again.
+- Many documentation improvements
+- IPython is now lazily imported only when progress bars are needed.
+- A MATLAB translator is now available for parameters being passed to MATLAB notebooks.
+- Parameters lists can more easily be passed to the command line via: `-p name value1 value2 3 ...` which results in adding to notebooks a parameter list assignment `name = ["value1", "value2", 3]`.
+
+## 1.0.1
+- Cleaned up some dependency and build issues around pip 19 and pandas
+- `execute_notebook` can now take notebook as strings instead of only as a path
+- `kwargs` are now passed through the default engine to nbconvert's wrapper class
+- Passing dates through yaml as parameters will no longer raise an exception (i.e. `-y "a_date: 2019-01-01"` without having to quote ala `-y "a_date: '2019-01-01'"`)
+
+## 1.0.0
+We made it to our [1.0 milestone goals](https://github.com/nteract/papermill/milestone/1?closed=1)! The largest change here is removal of `record`, `Notebook`, and `NotebookCollection` abstractions which are now living in [scrapbook](https://github.com/nteract/scrapbook) and requirement of nbconvert 5.5 as a dependency.
+
+- Input and output paths can now reference input parameters. `my_nb_{nb_type}.ipynb out_{nb_type}.ipynb -p nb_type test` will substitute values into the paths passed in with python format application patterns.
+- `read_notebook`, `read_notebooks`, `record`, and `display` api functions are now removed.
+- [upstream] ipywidgets are now supported. See [nbconvert docs](https://nbconvert.readthedocs.io/en/latest/execute_api.html#widget-state) for details.
+- [upstream] notebook executions which run out of memory no longer hang indefinitely when the kernel dies.
+
 ## 0.19.1
 - Added a warning when no `parameter` tag is present but parameters are being passed
 - Replaced `retry` with `tenacity` to help with conda builds and to use a non-abandoned library

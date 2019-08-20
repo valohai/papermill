@@ -17,6 +17,10 @@ class PapermillException(Exception):
     """Raised when an exception is encountered when operating on a notebook."""
 
 
+class PapermillMissingParameterException(PapermillException):
+    """Raised when a parameter without a value is required to operate on a notebook."""
+
+
 class PapermillExecutionError(PapermillException):
     """Raised when an exception is encountered in a notebook."""
 
@@ -40,6 +44,14 @@ class PapermillRateLimitException(PapermillException):
 
 class PapermillOptionalDependencyException(PapermillException):
     """Raised when an exception is encountered when an optional plugin is missing."""
+
+
+class PapermillWarning(Warning):
+    """Base warning for papermill."""
+
+
+class PapermillParameterOverwriteWarning(PapermillWarning):
+    """Callee overwrites caller argument to pass down the stream."""
 
 
 def missing_dependency_generator(package, dep):

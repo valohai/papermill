@@ -4,6 +4,7 @@ from __future__ import unicode_literals
 
 import io
 import os
+import sys
 import json
 import yaml
 import fnmatch
@@ -81,6 +82,9 @@ class PapermillIO(object):
         self.reset()
 
     def read(self, path, extensions=['.ipynb', '.json']):
+        if path == '-':
+            return sys.stdin.read()
+
         if not fnmatch.fnmatch(os.path.basename(path), '*.*'):
             warnings.warn(
                 "the file is not specified with any extension : " + os.path.basename(path)
@@ -96,6 +100,9 @@ class PapermillIO(object):
         return notebook_metadata
 
     def write(self, buf, path, extensions=['.ipynb', '.json']):
+        if path == '-':
+            return sys.stdout.write(buf)
+
         # Usually no return object here
         if not fnmatch.fnmatch(os.path.basename(path), '*.*'):
             warnings.warn(
@@ -166,9 +173,19 @@ class LocalHandler(object):
         self._cwd = None
 
     def read(self, path):
-        with chdir(self._cwd):
-            with io.open(path, 'r', encoding="utf-8") as f:
-                return f.read()
+        try:
+            with chdir(self._cwd):
+                with io.open(path, 'r', encoding="utf-8") as f:
+                    return f.read()
+        except IOError as e:
+            try:
+                # Check if path could be a notebook passed in as a
+                # string
+                json.loads(path)
+                return path
+            except ValueError:
+                # Propagate the IOError
+                raise e
 
     def listdir(self, path):
         with chdir(self._cwd):
@@ -311,11 +328,20 @@ class GCSHandler(object):
         return path
 
 
+# Hack to make YAML loader not auto-convert datetimes
+# https://stackoverflow.com/a/52312810
+NoDatesSafeLoader = yaml.SafeLoader
+NoDatesSafeLoader.yaml_implicit_resolvers = {
+    k: [r for r in v if r[0] != 'tag:yaml.org,2002:timestamp'] for
+    k, v in NoDatesSafeLoader.yaml_implicit_resolvers.items()
+}
+
+
 # Instantiate a PapermillIO instance and register Handlers.
 papermill_io = PapermillIO()
 papermill_io.register("local", LocalHandler())
 papermill_io.register("s3://", S3Handler)
-papermill_io.register("adl://", ADLHandler)
+papermill_io.register("adl://", ADLHandler())
 papermill_io.register("abs://", ABSHandler())
 papermill_io.register("http://", HttpHandler)
 papermill_io.register("https://", HttpHandler)
@@ -325,7 +351,7 @@ papermill_io.register_entry_points()
 
 def read_yaml_file(path):
     """Reads a YAML file from the location specified at 'path'."""
-    return yaml.load(papermill_io.read(path, ['.json', '.yaml', '.yml']))
+    return yaml.load(papermill_io.read(path, ['.json', '.yaml', '.yml']), Loader=NoDatesSafeLoader)
 
 
 def write_ipynb(nb, path):

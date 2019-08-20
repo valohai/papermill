@@ -1,46 +1,61 @@
 import os
 import logging
 import warnings
-import functools
 
 from contextlib import contextmanager
 from functools import wraps
 
-from .version import version as pm_version
+from .exceptions import PapermillParameterOverwriteWarning
 
 logger = logging.getLogger('papermill.utils')
 
 
-def deprecated(version, replacement=None):
-    '''
-    Warns the user that something is deprecated until `version`.
-    '''
+def merge_kwargs(caller_args, **callee_args):
+    """Merge named argument.
 
-    def wrapper(func):
-        @functools.wraps(func)
-        def new_func(*args, **kwargs):
-            replace_resp = ""
-            if replacement:
-                replace_resp = (
-                    " Please see {replacement} as a replacement for this "
-                    "functionality.".format(replacement=replacement)
-                )
-            warnings.warn(
-                "Function {name} is deprecated and will be removed in verison {target} "
-                "(current version {current}).{replace_resp}".format(
-                    name=func.__name__,
-                    target=version,
-                    current=pm_version,
-                    replace_resp=replace_resp,
-                ),
-                category=DeprecationWarning,
-                stacklevel=2,
-            )
-            return func(*args, **kwargs)
+    Function takes a dictionary of caller arguments and callee arguments as keyword arguments
+    Returns a dictionary with merged arguments. If same argument is in both caller and callee
+    arguments the last one will be taken and warning will be raised.
 
-        return new_func
+    Parameters
+    ----------
+    caller_args : dict
+        Caller arguments
+    **callee_args
+        Keyword callee arguments
 
-    return wrapper
+    Returns
+    -------
+    args : dict
+       Merged arguments
+    """
+    conflicts = set(caller_args) & set(callee_args)
+    if conflicts:
+        args = format('; '.join(['{}={}'.format(key, value)
+                                 for key, value in callee_args.items()]))
+        msg = "Callee will overwrite caller's argument(s): {}".format(args)
+        warnings.warn(msg, PapermillParameterOverwriteWarning)
+    return dict(caller_args, **callee_args)
+
+
+def remove_args(args=None, **kwargs):
+    """Remove arguments from kwargs.
+
+    Parameters
+    ----------
+    args : list
+        Argument names to remove from kwargs
+    **kwargs
+        Arbitrary keyword arguments
+
+    Returns
+    -------
+    kwargs : dict
+       New dictionary of arguments
+    """
+    if not args:
+        return kwargs
+    return {k: v for k, v in kwargs.items() if k not in args}
 
 
 # retry decorator

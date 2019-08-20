@@ -2,6 +2,10 @@
 """Main `papermill` interface."""
 from __future__ import unicode_literals
 
+import os
+import sys
+from stat import S_ISFIFO
+
 import base64
 import logging
 
@@ -11,10 +15,13 @@ import yaml
 import platform
 
 from .execute import execute_notebook
-from .iorw import read_yaml_file
+from .iorw import read_yaml_file, NoDatesSafeLoader
 from . import __version__ as papermill_version
 
 click.disable_unicode_literals_warning = True
+
+INPUT_PIPED = S_ISFIFO(os.fstat(0).st_mode)
+OUTPUT_PIPED = not sys.stdout.isatty()
 
 
 def print_papermill_version(ctx, param, value):
@@ -28,14 +35,60 @@ def print_papermill_version(ctx, param, value):
     ctx.exit()
 
 
+class OptionEatAll(click.Option):
+    # https://stackoverflow.com/a/48394004
+    def __init__(self, *args, **kwargs):
+        self.save_other_options = kwargs.pop('save_other_options', True)
+        nargs = kwargs.pop('nargs', -1)
+        assert nargs == -1, 'nargs, if set, must be -1 not {}'.format(nargs)
+        super(OptionEatAll, self).__init__(*args, **kwargs)
+        self._previous_parser_process = None
+        self._eat_all_parser = None
+
+    def add_to_parser(self, parser, ctx):
+
+        def parser_process(value, state):
+            # method to hook to the parser.process
+            done = False
+            value = [value]
+            if self.save_other_options:
+                # grab everything up to the next option
+                while state.rargs and not done:
+                    for prefix in self._eat_all_parser.prefixes:
+                        if state.rargs[0].startswith(prefix):
+                            done = True
+                    if not done:
+                        value.append(state.rargs.pop(0))
+            else:
+                # grab everything remaining
+                value += state.rargs
+                state.rargs[:] = []
+            value = tuple(value)
+
+            # call the actual process
+            self._previous_parser_process(value, state)
+
+        retval = super(OptionEatAll, self).add_to_parser(parser, ctx)
+        for name in self.opts:
+            our_parser = parser._long_opt.get(name) or parser._short_opt.get(name)
+            if our_parser:
+                self._eat_all_parser = our_parser
+                self._previous_parser_process = our_parser.process
+                our_parser.process = parser_process
+                break
+        return retval
+
+
 @click.command(context_settings=dict(help_option_names=['-h', '--help']))
-@click.argument('notebook_path')
-@click.argument('output_path')
+@click.argument('notebook_path', required=not INPUT_PIPED)
+@click.argument('output_path', required=not (INPUT_PIPED or OUTPUT_PIPED))
 @click.option(
-    '--parameters', '-p', nargs=2, multiple=True, help='Parameters to pass to the parameters cell.'
+    '--parameters', '-p', multiple=True, help='Parameters to pass to the parameters cell.',
+    cls=OptionEatAll,
 )
 @click.option(
-    '--parameters_raw', '-r', nargs=2, multiple=True, help='Parameters to be read as raw string.'
+    '--parameters_raw', '-r', multiple=True, help='Parameters to be read as raw string.',
+    cls=OptionEatAll,
 )
 @click.option(
     '--parameters_file', '-f', multiple=True, help='Path to YAML file containing parameters.'
@@ -68,6 +121,8 @@ def print_papermill_version(ctx, param, value):
     ),
 )
 @click.option('--engine', help='The execution engine name to use in evaluating the notebook.')
+@click.option('--request-save-on-cell-execute', default=True,
+              help='Request save notebook after each cell execution')
 @click.option(
     '--prepare-only/--prepare-execute',
     default=False,
@@ -113,6 +168,7 @@ def papermill(
     inject_output_path,
     inject_paths,
     engine,
+    request_save_on_cell_execute,
     prepare_only,
     kernel,
     cwd,
@@ -122,17 +178,41 @@ def papermill(
     start_timeout,
     report_mode,
 ):
-    """This utility executes a single notebook on a container.
+    """This utility executes a single notebook in a subprocess.
 
     Papermill takes a source notebook, applies parameters to the source
     notebook, executes the notebook with the specified kernel, and saves the
     output in the destination notebook.
 
-    """
-    logging.basicConfig(level=log_level, format="%(message)s")
+    The NOTEBOOK_PATH and OUTPUT_PATH can now be replaced by `-` representing
+    stdout and stderr, or by the presence of pipe inputs / outputs.
+    Meaning that
 
-    if progress_bar is None:
+    `<generate input>... | papermill | ...<process output>`
+
+    with `papermill - -` being implied by the pipes will read a notebook
+    from stdin and write it out to stdout.
+
+    """
+    if INPUT_PIPED and notebook_path and not output_path:
+        output_path = notebook_path
+        notebook_path = '-'
+    else:
+        notebook_path = notebook_path or '-'
+        output_path = output_path or '-'
+
+    if output_path == '-':
+        # Save notebook to stdout just once
+        request_save_on_cell_execute = False
+
+        # Reduce default log level if we pipe to stdout
+        if log_level == 'INFO':
+            log_level = 'ERROR'
+
+    elif progress_bar is None:
         progress_bar = not log_output
+
+    logging.basicConfig(level=log_level, format="%(message)s")
 
     # Read in Parameters
     parameters_final = {}
@@ -141,21 +221,30 @@ def papermill(
     if inject_output_path or inject_paths:
         parameters_final['PAPERMILL_OUTPUT_PATH'] = output_path
     for params in parameters_base64 or []:
-        parameters_final.update(yaml.load(base64.b64decode(params)))
+        parameters_final.update(yaml.load(base64.b64decode(params), Loader=NoDatesSafeLoader))
     for files in parameters_file or []:
         parameters_final.update(read_yaml_file(files))
     for params in parameters_yaml or []:
-        parameters_final.update(yaml.load(params))
-    for name, value in parameters or []:
-        parameters_final[name] = _resolve_type(value)
-    for name, value in parameters_raw or []:
-        parameters_final[name] = value
+        parameters_final.update(yaml.load(params, Loader=NoDatesSafeLoader))
+    for name_values in parameters or []:
+        name, values = name_values[0], name_values[1:]
+        if not values:
+            raise ValueError("There must be at least one value for key '{}'".format(name))
+        values = [_resolve_type(v) for v in values]
+        parameters_final[name] = values[0] if len(values) == 1 else values
+    for name_values in parameters_raw or []:
+        name, values = name_values[0], name_values[1:]
+        if not values:
+            raise ValueError("There must be at least one value for key '{}'".format(name))
+        values = list(values)
+        parameters_final[name] = values[0] if len(values) == 1 else values
 
     execute_notebook(
         notebook_path,
         output_path,
         parameters_final,
         engine_name=engine,
+        request_save_on_cell_execute=request_save_on_cell_execute,
         prepare_only=prepare_only,
         kernel_name=kernel,
         progress_bar=progress_bar,

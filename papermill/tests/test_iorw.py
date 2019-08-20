@@ -4,7 +4,9 @@ import json
 import unittest
 import os
 import io
+import nbformat
 import pytest
+import mock
 from requests.exceptions import ConnectionError
 
 try:
@@ -112,8 +114,6 @@ class TestPapermillIO(unittest.TestCase):
         ) as mock_get_group_all:
 
             self.papermill_io.register_entry_points()
-            for scheme, handler in self.papermill_io._handlers:
-                print(scheme, handler)
             mock_get_group_all.assert_called_once_with("papermill.io")
             assert (
                 self.papermill_io.get_handler("fake-from-entry-point://")
@@ -183,6 +183,13 @@ class TestPapermillIO(unittest.TestCase):
         with pytest.warns(UserWarning):
             self.papermill_io.write("buffer", "fake/path/fakeoutputpath.ipynb1")
 
+    def test_write_stdout(self):
+        file_content = u'Τὴ γλῶσσα μοῦ ἔδωσαν ἑλληνικὴ'
+        out = io.StringIO()
+        with mock.patch('sys.stdout', out):
+            self.papermill_io.write(file_content, "-")
+            self.assertEqual(out.getvalue(), file_content)
+
     def test_pretty_path(self):
         self.assertEqual(self.papermill_io.pretty_path("fake/path"), "fake/path/pretty/1")
 
@@ -242,6 +249,17 @@ class TestLocalHandler(unittest.TestCase):
                     self.assertEqual(f.read().strip(), u'✄')
             finally:
                 papermill_io.handlers = handlers
+
+    def test_read_from_string(self):
+        nbnode_as_string = nbformat.writes(nbformat.v4.new_notebook())
+        # the stringified notebook is passed straight through
+        self.assertEqual(LocalHandler().read(nbnode_as_string), nbnode_as_string)
+
+    def test_invalid_string(self):
+        # a string from which we can't extract a notebook is assumed to
+        # be a file and an IOError will be raised
+        with self.assertRaises(IOError):
+            LocalHandler().read("a random string")
 
 
 class TestADLHandler(unittest.TestCase):

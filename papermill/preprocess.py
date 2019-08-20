@@ -5,12 +5,6 @@ import sys
 
 from nbconvert.preprocessors import ExecutePreprocessor
 from nbconvert.preprocessors.execute import CellExecutionError
-from nbformat.v4 import output_from_msg
-
-try:
-    from queue import Empty  # Py 3
-except ImportError:
-    from Queue import Empty  # Py 2
 
 
 class PapermillExecutePreprocessor(ExecutePreprocessor):
@@ -23,22 +17,13 @@ class PapermillExecutePreprocessor(ExecutePreprocessor):
         """
         with self.setup_preprocessor(nb_man.nb, resources, km=km):
             if self.log_output:
-                self.log.info("Executing notebook with kernel: %s" % self.kernel_name)
+                self.log.info("Executing notebook with kernel: {}".format(self.kernel_name))
             nb, resources = self.papermill_process(nb_man, resources)
             info_msg = self._wait_for_reply(self.kc.kernel_info())
             nb.metadata['language_info'] = info_msg['content']['language_info']
+            self.set_widgets_metadata()
 
         return nb, resources
-
-    def start_new_kernel(self, **kwargs):
-        """
-        Wraps the parent class process call slightly
-        """
-        km, kc = super(PapermillExecutePreprocessor, self).start_new_kernel(**kwargs)
-        # Note sure if we need this anymore?
-        kc.allow_stdin = False
-
-        return km, kc
 
     def papermill_process(self, nb_man, resources):
         """
@@ -71,15 +56,15 @@ class PapermillExecutePreprocessor(ExecutePreprocessor):
         for index, cell in enumerate(nb.cells):
             try:
                 if 'disable' not in cell['metadata']['tags']:
-                    nb_man.cell_start(cell)
+                    nb_man.cell_start(cell, index)
                     if not cell.source:
                         continue
                     nb.cells[index], resources = self.preprocess_cell(cell, resources, index)
             except CellExecutionError as ex:
-                nb_man.cell_exception(nb.cells[index], exception=ex)
+                nb_man.cell_exception(nb.cells[index], cell_index=index, exception=ex)
                 break
             finally:
-                nb_man.cell_complete(nb.cells[index])
+                nb_man.cell_complete(nb.cells[index], cell_index=index)
         return nb, resources
 
     def log_output_message(self, output):
@@ -185,3 +170,10 @@ class PapermillExecutePreprocessor(ExecutePreprocessor):
         sys.stderr.flush()
 
         return exec_reply, outs
+
+    def process_message(self, *arg, **kwargs):
+        output = super(PapermillExecutePreprocessor, self).process_message(*arg, **kwargs)
+        if self.log_output and output:
+            self.log_output_message(output)
+        return output
+

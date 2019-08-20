@@ -1,4 +1,5 @@
 """Engines to perform different roles"""
+import sys
 import copy
 import datetime
 import dateutil
@@ -10,15 +11,7 @@ from .log import logger
 from .exceptions import PapermillException
 from .preprocess import PapermillExecutePreprocessor
 from .iorw import write_ipynb
-
-# tqdm creates 2 globals lock which raise OSException if the execution
-# environment does not have shared memory for processes, e.g. AWS Lambda
-try:
-    from tqdm.auto import tqdm
-
-    no_tqdm = False
-except OSError:
-    no_tqdm = True
+from .utils import merge_kwargs, remove_args
 
 
 class PapermillEngines(object):
@@ -103,8 +96,11 @@ class NotebookExecutionManager(object):
         self.start_time = None
         self.end_time = None
         self.pbar = None
-        if progress_bar and not no_tqdm:
-            self.pbar = tqdm(total=len(self.nb.cells))
+        if progress_bar:
+            # lazy import due to implict slow ipython import
+            from tqdm.auto import tqdm
+            self.pbar = tqdm(total=len(self.nb.cells), unit="cell",
+                             desc="Executing")
 
     def now(self):
         """Helper to return current UTC time"""
@@ -174,13 +170,17 @@ class NotebookExecutionManager(object):
         self.save()
 
     @catch_nb_assignment
-    def cell_start(self, cell, **kwargs):
+    def cell_start(self, cell, cell_index=None, **kwargs):
         """
         Set and save a cell's start state.
 
         Optionally called by engines during execution to initialize the
         metadata for a cell and save the notebook to the output path.
         """
+        if self.log_output:
+            ceel_num = cell_index + 1 if cell_index is not None else ''
+            logger.info('Executing Cell {:-<40}'.format(ceel_num))
+
         cell.metadata.papermill['start_time'] = self.now().isoformat()
         cell.metadata.papermill["status"] = self.RUNNING
         cell.metadata.papermill['exception'] = False
@@ -188,7 +188,7 @@ class NotebookExecutionManager(object):
         self.save()
 
     @catch_nb_assignment
-    def cell_exception(self, cell, **kwargs):
+    def cell_exception(self, cell, cell_index=None, **kwargs):
         """
         Set metadata when an exception is raised.
 
@@ -201,7 +201,7 @@ class NotebookExecutionManager(object):
         self.nb.metadata.papermill['exception'] = True
 
     @catch_nb_assignment
-    def cell_complete(self, cell, **kwargs):
+    def cell_complete(self, cell, cell_index=None, **kwargs):
         """
         Finalize metadata for a cell and save notebook.
 
@@ -209,6 +209,14 @@ class NotebookExecutionManager(object):
         metadata for a cell and save the notebook to the output path.
         """
         end_time = self.now()
+
+        if self.log_output:
+            ceel_num = cell_index + 1 if cell_index is not None else ''
+            logger.info('Ending Cell {:-<43}'.format(ceel_num))
+            # Ensure our last cell messages are not buffered by python
+            sys.stdout.flush()
+            sys.stderr.flush()
+
         cell.metadata.papermill['end_time'] = end_time.isoformat()
         if cell.metadata.papermill.get('start_time'):
             start_time = dateutil.parser.parse(cell.metadata.papermill['start_time'])
@@ -342,14 +350,20 @@ class NBConvertEngine(Engine):
         by `nbconvert`, and it is somewhat misleading here. The preprocesser
         represents a notebook processor, not a preparation object.
         """
+
+        # Exclude parameters that named differently downstream
+        safe_kwargs = remove_args(['timeout', 'startup_timeout'], **kwargs)
+
+        # Nicely handle preprocessor arguments prioritizing values set by engine
         preprocessor = PapermillExecutePreprocessor(
-            timeout=execution_timeout,
-            startup_timeout=start_timeout,
-            kernel_name=kernel_name,
-            log=logger,
-        )
+            **merge_kwargs(safe_kwargs,
+                           timeout=execution_timeout if execution_timeout else kwargs.get('timeout'),
+                           startup_timeout=start_timeout,
+                           kernel_name=kernel_name,
+                           log=logger))
+
         preprocessor.log_output = log_output
-        preprocessor.preprocess(nb_man, kwargs)
+        preprocessor.preprocess(nb_man, safe_kwargs)
 
 
 # Instantiate a PapermillEngines instance, register Handlers and entrypoints

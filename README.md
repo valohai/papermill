@@ -2,7 +2,8 @@
 =======================================================================================================================================================================
 
 <!---(binder links generated at https://mybinder.readthedocs.io/en/latest/howto/badges.html and compressed at https://tinyurl.com) -->
-[![Build Status](https://travis-ci.org/nteract/papermill.svg?branch=master)](https://travis-ci.org/nteract/papermill)
+[![Travis Build Status](https://travis-ci.org/nteract/papermill.svg?branch=master)](https://travis-ci.org/nteract/papermill)
+[![Azure Build Status](https://dev.azure.com/nteract/nteract/_apis/build/status/nteract.papermill?branchName=master)](https://dev.azure.com/nteract/nteract/_build/latest?definitionId=5&branchName=master)
 [![image](https://codecov.io/github/nteract/papermill/coverage.svg?branch=master)](https://codecov.io/github/nteract/papermill?branch=master)
 [![Documentation Status](https://readthedocs.org/projects/papermill/badge/?version=latest)](http://papermill.readthedocs.io/en/latest/?badge=latest)
 [![badge](https://tinyurl.com/ybwovtw2)](https://mybinder.org/v2/gh/nteract/papermill/master?filepath=binder%2Fprocess_highlight_dates.ipynb)
@@ -16,11 +17,6 @@ Papermill lets you:
 
 -   **parameterize** notebooks
 -   **execute** notebooks
-
-**DEPRECATED** This functionality will be removed entirely in papermill 1.0,
-the features are moved to [scrapbook](https://nteract-scrapbook.readthedocs.io/en/latest/):
--   **collect** metrics across the notebooks
--   **summarize collections** of notebooks
 
 This opens up new opportunities for how notebooks can be used. For
 example:
@@ -144,7 +140,7 @@ linear_function:
 
 #### Supported Name Handlers
 
-Papermill supports the following name handlers for input and output paths during execution: 
+Papermill supports the following name handlers for input and output paths during execution:
 
  * Local file system: `local`
 
@@ -153,114 +149,8 @@ Papermill supports the following name handlers for input and output paths during
  * Amazon Web Services: [AWS S3](https://aws.amazon.com/s3/) `s3://`
 
  * Azure: [Azure DataLake Store](https://docs.microsoft.com/en-us/azure/data-lake-store/data-lake-store-overview), [Azure Blob Store](https://docs.microsoft.com/en-us/azure/storage/blobs/storage-blobs-overview) `adl://, abs://`
-    
+
  * Google Cloud: [Google Cloud Storage](https://cloud.google.com/storage/) `gs://`
-
-Python In-notebook Bindings
----------------------------
-
-### Recording Values to the Notebook
-
-**DEPRECATED** This functionality will be removed entirely in papermill 1.0
-
-See scrapbook's [glue](https://nteract-scrapbook.readthedocs.io/en/latest/usage-glue.html)
-for an equivilent API for this capability.
-
-Users can save values to the notebook document to be consumed by other
-notebooks.
-
-Recording values to be saved with the notebook.
-
-``` {.sourceCode .python}
-"""notebook.ipynb"""
-import papermill as pm
-
-pm.record("hello", "world")
-pm.record("number", 123)
-pm.record("some_list", [1, 3, 5])
-pm.record("some_dict", {"a": 1, "b": 2})
-```
-
-Users can recover those values as a Pandas dataframe via the
-`read_notebook` function.
-
-``` {.sourceCode .python}
-"""summary.ipynb"""
-import papermill as pm
-
-nb = pm.read_notebook('notebook.ipynb')
-nb.dataframe
-```
-
-![image](docs/img/nb_dataframe.png)
-
-### Displaying Plots and Images Saved by Other Notebooks
-
-**DEPRECATED** This functionality will be removed entirely in papermill 1.0
-
-See scrapbook's [reglue](https://nteract-scrapbook.readthedocs.io/en/latest/usage-read-notebook.html#reglue)
-for an equivilent API for this capability.
-
-Display a matplotlib histogram with the key name `matplotlib_hist`.
-
-``` {.sourceCode .python}
-"""notebook.ipynb"""
-import papermill as pm
-from ggplot import mpg
-import matplotlib.pyplot as plt
-
-# turn off interactive plotting to avoid double plotting
-plt.ioff()
-
-f = plt.figure()
-plt.hist('cty', bins=12, data=mpg)
-pm.display('matplotlib_hist', f)
-```
-
-![image](docs/img/matplotlib_hist.png)
-
-Read in that above notebook and display the plot saved at
-`matplotlib_hist`.
-
-``` {.sourceCode .python}
-"""summary.ipynb"""
-import papermill as pm
-
-nb = pm.read_notebook('notebook.ipynb')
-nb.display_output('matplotlib_hist')
-```
-
-![image](docs/img/matplotlib_hist.png)
-
-### Analyzing a Collection of Notebooks
-
-**DEPRECATED** This functionality will be removed entirely in papermill 1.0
-
-See scrapbook's [scrapbook](https://nteract-scrapbook.readthedocs.io/en/latest/usage-read-notebooks.html)
-model for an equivilent API for this capability.
-
-Papermill can read in a directory of notebooks and provides the
-`NotebookCollection` interface for operating on them.
-
-``` {.sourceCode .python}
-"""summary.ipynb"""
-import papermill as pm
-
-nbs = pm.read_notebooks('/path/to/results/')
-
-# Show named plot from 'notebook1.ipynb'
-# Accept a key or list of keys to plot in order.
-nbs.display_output('train_1.ipynb', 'matplotlib_hist')
-```
-
-![image](docs/img/matplotlib_hist.png)
-
-``` {.sourceCode .python}
-# Dataframe for all notebooks in collection
-nbs.dataframe.head(10)
-```
-
-![image](docs/img/nbs_dataframe.png)
 
 Development Guide
 -----------------
